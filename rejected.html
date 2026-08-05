@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المكالمات المرفوضة - لوحة القيادة</title>
+    <!-- Google Fonts: Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- Header & Controls -->
+        <header class="glass-panel main-header"
+            style="justify-content: center; text-align: center; position: relative;">
+            <a href="index.html" class="primary-btn"
+                style="position: absolute; right: 1.5rem; top: 1.5rem; text-decoration: none;">رجوع للوحة التحكم</a>
+            <div>
+                <h1>📞 تفاصيل المكالمات المرفوضة</h1>
+                <p>قائمة بالمكالمات التي تم رفضها أو إلغاؤها</p>
+                <div style="margin-top: 1rem; font-size: 0.95rem; color: var(--text-muted);" id="filterDetails">
+                    <!-- Filters applied will be shown here -->
+                </div>
+            </div>
+        </header>
+
+        <!-- Numbers Table Controls -->
+        <section class="glass-panel" style="margin-bottom: 1rem; padding: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem; justify-content: center;">
+                <label style="font-weight: 800;">طريقة العرض:</label>
+                <select id="viewModeSelect" class="branch-input" style="width: auto; padding: 0.4rem 2rem;">
+                    <option value="grouped">تجميع المكرر (مع التفاصيل)</option>
+                    <option value="unique">الأرقام الفريدة فقط (أحدث مكالمة)</option>
+                    <option value="all">كل المكالمات (بدون تجميع)</option>
+                </select>
+                <button id="exportExcelBtn" class="primary-btn" style="background: var(--color-green); display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📊 تصدير إلى Excel</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Numbers Table -->
+        <section class="glass-panel">
+            <h3 class="col-title bg-red">قائمة الأرقام</h3>
+            <div class="table-scroll-wrapper" style="max-height: 70vh;">
+                <table class="branches-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">#</th>
+                            <th>رقم العميل</th>
+                            <th>وقت المكالمة المرفوضة</th>
+                            <th>الفرع</th>
+                            <th>القطاع</th>
+                            <th>الشفت</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rejected_numbers_body">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Scripts -->
+    <!-- We do not need PapaParse here, just our DB script -->
+    <script src="script.js"></script>
+</body>
+
+</html>

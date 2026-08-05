@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحليل المكالمات - لوحة القيادة</title>
+    <!-- Google Fonts: Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- PapaParse for CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- Header & Controls -->
+        <header class="glass-panel main-header">
+            <div>
+                <h1>📊 لوحة التحكم الذكية لتحليل المكالمات</h1>
+                <p>قم برفع ملف الـ CSV ليتم دمجه وحسابه تلقائياً من قاعدة البيانات المحلية</p>
+            </div>
+
+            <div class="controls-group">
+                <label for="csvUpload" class="upload-btn">
+                    <span>رفع ملفات CSV</span>
+                    <input type="file" id="csvUpload" accept=".csv" multiple />
+                </label>
+                <button id="clearDataBtn" class="danger-btn">مسح كل البيانات</button>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Row (Filters + Stats + Percentages) -->
+        <div class="stats-grid-wrapper">
+            <!-- Filters Card -->
+            <div class="glass-panel filters-card">
+                <div class="filter-header" style="margin-bottom: 1rem;">
+                    <h3 class="col-title bg-teal" style="margin-bottom: 0;">تحديد التصفية</h3>
+                </div>
+
+                <div class="last-updated" style="margin-bottom: 1rem; text-align: center;">آخر مكالمة مسجلة: <br><span
+                        id="lastCallDisplay" style="font-weight: bold;">--</span></div>
+
+                <div class="filters-inputs-container">
+                    <div class="input-group">
+                        <label>القطاع:</label>
+                        <select id="sectorFilter">
+                            <option value="">كل القطاعات</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>الفرع:</label>
+                        <select id="branchFilter">
+                            <option value="">كل الفروع</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>من تاريخ:</label>
+                        <input type="date" id="dateFrom">
+                    </div>
+                    <div class="input-group">
+                        <label>إلى تاريخ:</label>
+                        <input type="date" id="dateTo">
+                    </div>
+                    <button id="applyFilterBtn" class="primary-btn" style="width: 100%; margin-top: 0.5rem;">تطبيق
+                        التصفية</button>
+                </div>
+            </div>
+
+            <!-- Merged Column -->
+            <div class="stats-col glass-panel merged-calls">
+                <h3 class="col-title bg-blue">ملخص المكالمات (إجمالي / غير مسجلة)</h3>
+
+                <!-- Table Header for clarity -->
+                <div class="stat-merged-header">
+                    <div class="sm-label">نوع المكالمة</div>
+                    <div class="sm-value-col">إجمالي</div>
+                    <div class="sm-value-col">غير مسجلة</div>
+                </div>
+
+                <!-- Total -->
+                <div class="stat-merged-card row-highlight">
+                    <div class="sm-label">إجمالي جميع المكالمات</div>
+                    <div class="sm-value" id="all_total">0</div>
+                    <div class="sm-value text-teal" id="unreg_total">0</div>
+                </div>
+
+                <!-- Incoming -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">إجمالي المكالمات الواردة</div>
+                    <div class="sm-value" id="all_incoming">0</div>
+                    <div class="sm-value text-teal" id="unreg_incoming">0</div>
+                </div>
+
+                <!-- Answered -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">واردة تم الرد عليها</div>
+                    <div class="sm-value" id="all_answered">0</div>
+                    <div class="sm-value text-teal" id="unreg_answered">0</div>
+                </div>
+
+                <!-- Missed -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">المكالمات الفائتة</div>
+                    <div class="sm-value text-red" id="all_missed">0</div>
+                    <div class="sm-value text-red" id="unreg_missed">0</div>
+                </div>
+
+                <!-- Rejected -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">المكالمات المرفوضة</div>
+                    <div class="sm-value text-orange" id="all_rejected">0</div>
+                    <div class="sm-value text-orange" id="unreg_rejected">0</div>
+                </div>
+
+                <!-- Outgoing -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">المكالمات الصادرة</div>
+                    <div class="sm-value" id="all_outgoing">0</div>
+                    <div class="sm-value text-teal" id="unreg_outgoing">0</div>
+                </div>
+
+                <!-- Connected -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">المكالمات المتصلة</div>
+                    <div class="sm-value text-green" id="all_connected">0</div>
+                    <div class="sm-value text-green" id="unreg_connected">0</div>
+                </div>
+
+                <!-- New Numbers -->
+                <div class="stat-merged-card">
+                    <div class="sm-label">الأرقام الجديدة</div>
+                    <div class="sm-value text-purple" id="all_new_numbers">0</div>
+                    <div class="sm-value text-purple" id="unreg_new_numbers">0</div>
+                </div>
+            </div>
+
+            <!-- Percentages Section -->
+            <div class="glass-panel percentages-section">
+                <h3 class="col-title bg-orange" style="margin-bottom: 1.5rem;">نسب تحليل الوارد</h3>
+                <div class="percentage-grid">
+                    <div class="percent-card">
+                        <div class="perc-label">نسبة الرد</div>
+                        <div class="perc-value text-green" id="perc_answered">0%</div>
+                    </div>
+                    <div class="percent-card">
+                        <div class="perc-label">نسبة الفائتة</div>
+                        <div class="perc-value text-red" id="perc_missed">0%</div>
+                    </div>
+                    <div class="percent-card">
+                        <div class="perc-label">نسبة المرفوضة</div>
+                        <div class="perc-value text-orange" id="perc_rejected">0%</div>
+                    </div>
+                    <div class="percent-card">
+                        <div class="perc-label">نسبة الأرقام الجديدة</div>
+                        <div class="perc-value text-purple" id="perc_new">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unfollowed Missed Calls -->
+        <section class="glass-panel unfollowed-section">
+            <h3 class="col-title bg-red">مكالمات فائتة/مرفوضة من ارقام غير مسجلة ولم تتم متابعتها</h3>
+
+            <div class="unfollowed-header">
+                <div class="uh-item">
+                    <span>عدد المكالمات:</span>
+                    <strong id="unfollowed_count" class="text-red">0</strong>
+                </div>
+                <div class="uh-item">
+                    <span>النسبة من إجمالي الواردة:</span>
+                    <strong id="unfollowed_perc" class="text-red">0%</strong>
+                </div>
+                <!-- Link to details page -->
+                <button id="viewUnfollowedBtn" class="primary-btn" style="background: var(--color-red);">عرض الأرقام
+                    وتفاصيلها</button>
+            </div>
+
+            <div class="shift-stats-grid">
+                <!-- Shift totals -->
+                <div class="shift-totals">
+                    <h4>توزيع الشفتات</h4>
+                    <table class="shift-table">
+                        <thead>
+                            <tr>
+                                <th>الشفت</th>
+                                <th>عدد المكالمات</th>
+                                <th>النسبة المئوية</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shift_totals_body">
+                            <!-- Injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Daily breakdown -->
+                <div class="daily-breakdown">
+                    <h4>التفصيل اليومي</h4>
+                    <div class="table-scroll-wrapper">
+                        <table class="daily-table">
+                            <thead>
+                                <tr>
+                                    <th>اليوم</th>
+                                    <th>الشفت</th>
+                                    <th>عدد المكالمات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="daily_breakdown_body">
+                                <!-- Injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Rejected Call Times -->
+        <section class="glass-panel rejected-section">
+            <h3 class="col-title bg-orange">اوقات المكالمات المرفوضة</h3>
+
+            <div class="unfollowed-header">
+                <div class="uh-item">
+                    <span>عدد المكالمات المرفوضة:</span>
+                    <strong id="rejected_time_count" class="text-orange">0</strong>
+                </div>
+                <div class="uh-item">
+                    <span>النسبة من إجمالي الواردة:</span>
+                    <strong id="rejected_time_perc" class="text-orange">0%</strong>
+                </div>
+                <!-- Link to details page -->
+                <button id="viewRejectedBtn" class="primary-btn" style="background: var(--color-orange);">عرض الأرقام وتفاصيلها</button>
+            </div>
+
+            <div class="shift-stats-grid">
+                <!-- Shift totals -->
+                <div class="shift-totals">
+                    <h4>توزيع الشفتات</h4>
+                    <table class="shift-table">
+                        <thead>
+                            <tr>
+                                <th>الشفت</th>
+                                <th>عدد المكالمات</th>
+                                <th>النسبة المئوية</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rejected_shift_totals_body">
+                            <!-- Injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Daily breakdown -->
+                <div class="daily-breakdown">
+                    <h4>التفصيل اليومي</h4>
+                    <div class="table-scroll-wrapper">
+                        <table class="daily-table">
+                            <thead>
+                                <tr>
+                                    <th>اليوم</th>
+                                    <th>الشفت</th>
+                                    <th>عدد المكالمات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rejected_daily_breakdown_body">
+                                <!-- Injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Branches Comparison Table -->
+        <section class="glass-panel branches-comparison-section">
+            <h3 class="col-title bg-blue">مقارنة الفروع</h3>
+
+            <!-- Column Selection -->
+            <div class="column-selector-group">
+                <span style="font-weight: 800; margin-left: 1rem;">أظهر في الجدول:</span>
+                <label><input type="checkbox" class="col-toggle" data-col="col-total" checked> إجمالي المكالمات</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-incoming" checked> الواردة</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-answered" checked> الرد عليها</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-missed" checked> الفائتة</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-rejected" checked> المرفوضة</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-outgoing" checked> الصادرة</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-connected" checked> المتصلة</label>
+                <label><input type="checkbox" class="col-toggle" data-col="col-unfollowed" checked> فائتة غير
+                    متابعة</label>
+            </div>
+
+            <div class="comparison-table-container">
+                <table class="branches-table">
+                    <thead>
+                        <tr>
+                            <th>الفرع</th>
+                            <th>القطاع</th>
+                            <th class="col-total">إجمالي المكالمات</th>
+                            <th class="col-incoming">الواردة</th>
+                            <th class="col-answered">الرد عليها</th>
+                            <th class="col-missed">الفائتة</th>
+                            <th class="col-rejected">المرفوضة</th>
+                            <th class="col-outgoing">الصادرة</th>
+                            <th class="col-connected">المتصلة</th>
+                            <th class="col-unfollowed text-red">فائتة غير متابعة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="branches_comparison_body">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        
+        <!-- Smart Monthly Comparison Section -->
+        <section class="glass-panel monthly-comparison-section">
+            <h3 class="col-title bg-purple">📊 المقارنة الشهرية الذكية</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">اختر شهرين لمقارنة أداء الفروع والمقاييس بشكل دقيق:</p>
+            
+            <div class="comparison-inputs">
+                <div class="input-group">
+                    <label>الشهر الأول (الأساس):</label>
+                    <input type="month" id="monthOne">
+                </div>
+                <div class="input-group">
+                    <label>الشهر الثاني (للمقارنة):</label>
+                    <input type="month" id="monthTwo">
+                </div>
+                <button id="runComparisonBtn" class="primary-btn" style="background: var(--color-purple); align-self: flex-end;">بدء المقارنة</button>
+            </div>
+
+            <!-- Comparison Results Container -->
+            <div id="comparisonResults" class="comparison-results-container hidden">
+                <div class="comparison-grid">
+                    <!-- Cards will be injected by JS -->
+                </div>
+                <div class="comparison-table-container" style="margin-top: 1.5rem;">
+                    <table class="branches-table comparison-table">
+                        <thead>
+                            <tr>
+                                <th>المقياس</th>
+                                <th id="labelMonthOne">الشهر الأول</th>
+                                <th id="labelMonthTwo">الشهر الثاني</th>
+                                <th>التغير (%)</th>
+                                <th>الفارق (قيمة)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="comparisonBody">
+                            <!-- Rows will be injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Uploaded Files History -->
+        <section class="glass-panel">
+            <h3 class="col-title bg-gray">سجل الملفات المرفوعة</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">يمكنك حذف بيانات ملف معين تم رفعه من القائمة أدناه:</p>
+            <div class="comparison-table-container">
+                <table class="branches-table">
+                    <thead>
+                        <tr>
+                            <th>اسم الملف</th>
+                            <th>القطاع</th>
+                            <th>الفرع</th>
+                            <th>تاريخ الرفع</th>
+                            <th>إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="upload_history_body">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Mapping Modal -->
+    <div id="mappingModal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="header" style="margin-bottom: 1.5rem; text-align: center;">
+                <h3 class="col-title bg-blue" style="margin-bottom: 0;">🔄 مطابقة الملفات المرفوعة بالفروع</h3>
+                <p>يرجى اختيار الفرع المناسب لكل ملف تم رفعه:</p>
+            </div>
+            
+            <div class="comparison-table-container">
+                <table class="branches-table">
+                    <thead>
+                        <tr>
+                            <th>اسم الملف</th>
+                            <th>القطاع</th>
+                            <th>الفرع المكتشف / المختار</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mappingList">
+                        <!-- Rows injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem;">
+                <button id="cancelMappingBtn" class="danger-btn">إلغاء الرفع</button>
+                <button id="confirmMappingBtn" class="primary-btn">حفظ ودمج البيانات</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Branch Modal -->
+    <div id="editBranchModal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+            <div class="header" style="margin-bottom: 1.5rem; text-align: center;">
+                <h3 class="col-title bg-orange" style="margin-bottom: 0;">✏️ تعديل اسم الفرع</h3>
+                <p id="editFileInfoText" style="font-size: 0.9rem; color: var(--text-muted);"></p>
+            </div>
+            
+            <div class="input-group" style="margin: 1rem 0;">
+                <label style="font-weight: 800; margin-bottom: 0.5rem; display: block;">القطاع:</label>
+                <select id="editSectorSelect" style="width: 100%; padding: 0.6rem;"></select>
+                <input type="text" id="editSectorNewInput" placeholder="أدخل اسم قطاع جديد..." class="hidden" style="width: 100%; margin-top: 1rem; padding: 0.6rem;">
+            </div>
+            
+            <div class="input-group" style="margin: 1rem 0;">
+                <label style="font-weight: 800; margin-bottom: 0.5rem; display: block;">الفرع:</label>
+                <select id="editBranchSelect" style="width: 100%; padding: 0.6rem;"></select>
+                <input type="text" id="editBranchNewInput" placeholder="أدخل اسم فرع جديد..." class="hidden" style="width: 100%; margin-top: 1rem; padding: 0.6rem;">
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 1rem;">
+                <button id="cancelEditBtn" class="danger-btn">إلغاء</button>
+                <button id="confirmEditBtn" class="primary-btn">تحديث</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="script.js"></script>
+
+</body>
+
+</html>
