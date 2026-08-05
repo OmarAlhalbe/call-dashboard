@@ -83,7 +83,51 @@ app.post('/api/clear', (req, res) => {
         res.status(500).json({ error: 'Failed to clear data' });
     }
 });
+// API: Edit records for a specific upload
+app.post('/api/edit-upload', (req, res) => {
+    try {
+        const { sourceFile, uploadTime, newSector, newBranch } = req.body;
+        const currentDataRaw = fs.readFileSync(dataFile, 'utf8');
+        let currentData = JSON.parse(currentDataRaw);
+        
+        currentData = currentData.map(r => {
+            if (r.sourceFile === sourceFile && r.uploadTime === uploadTime) {
+                r.sector = newSector;
+                r.branch = newBranch;
+                r.id = `${r.branch}_${r['Date Time']}_${r['From Number']}_${r['To Number']}_${r['Duration']}_${r['Type']}_${r.uploadTime}`;
+            }
+            return r;
+        });
+        
+        fs.writeFileSync(dataFile, JSON.stringify(currentData));
+        res.json({ message: 'Records updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update records' });
+    }
+});
 
+// API: Delete records for a specific upload
+app.post('/api/delete-upload', (req, res) => {
+    try {
+        const { sourceFile, uploadTime } = req.body;
+        const currentDataRaw = fs.readFileSync(dataFile, 'utf8');
+        let currentData = JSON.parse(currentDataRaw);
+        
+        const initialLength = currentData.length;
+        currentData = currentData.filter(r => !(r.sourceFile === sourceFile && r.uploadTime === uploadTime));
+        
+        if (currentData.length === initialLength) {
+            return res.status(404).json({ message: 'No records found to delete' });
+        }
+        
+        fs.writeFileSync(dataFile, JSON.stringify(currentData));
+        res.json({ message: 'Records deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to delete records' });
+    }
+});
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 });

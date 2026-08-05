@@ -1008,40 +1008,22 @@ document.getElementById('confirmEditBtn').addEventListener('click', async () => 
     }
 
     try {
-        const transaction = db.transaction([STORE_NAME], "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = async () => {
-            const allRecords = request.result;
-            const recordsToUpdate = allRecords.filter(r =>
-                (r.sourceFile === currentEditBatch.file && r.uploadTime === currentEditBatch.time)
-            );
-
-            // Start a new transaction for updating
-            const updateTxn = db.transaction([STORE_NAME], "readwrite");
-            const updateStore = updateTxn.objectStore(STORE_NAME);
-
-            recordsToUpdate.forEach(r => {
-                r.sector = newSectorName;
-                r.branch = newBranchName;
-                // Re-generate ID because branch & sector (implicitly) affect uniqueness here
-                const uniqueId = `${r['branch']}_${r['Date Time']}_${r['From Number']}_${r['To Number']}_${r['Duration']}_${r['Type']}_${r.uploadTime}`;
-                const oldId = r.id;
-                r.id = uniqueId;
-                
-                if (oldId !== uniqueId) {
-                    updateStore.delete(oldId);
-                }
-                updateStore.put(r);
-            });
-
-            updateTxn.oncomplete = async () => {
-                document.getElementById('editBranchModal').classList.add('hidden');
-                alert("تم تحديث البيانات بنجاح.");
-                await loadDataAndRender();
-            };
-        };
+        const response = await fetch(`${API_BASE}/api/edit-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sourceFile: currentEditBatch.file,
+                uploadTime: currentEditBatch.time,
+                newSector: newSectorName,
+                newBranch: newBranchName
+            })
+        });
+        
+        if (!response.ok) throw new Error("Update failed");
+        
+        document.getElementById('editBranchModal').classList.add('hidden');
+        alert("تم تحديث البيانات بنجاح.");
+        await loadDataAndRender();
     } catch (err) {
         console.error("Update failed", err);
         alert("حدث خطأ أثناء التحديث.");
@@ -1053,33 +1035,26 @@ async function deleteByUpload(filename, uploadTime) {
     if (!confirm(`هل أنت متأكد من حذف كل البيانات المستوردة من الملف "${filename}"؟`)) return;
 
     try {
-        const transaction = db.transaction([STORE_NAME], "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = async () => {
-            const allRecords = request.result;
-            const recordsToDelete = allRecords.filter(r =>
-                (r.sourceFile === filename && r.uploadTime === uploadTime)
-            );
-
-            if (recordsToDelete.length === 0) {
+        const response = await fetch(`${API_BASE}/api/delete-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sourceFile: filename,
+                uploadTime: uploadTime
+            })
+        });
+        
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            if (errData.message === 'No records found to delete') {
                 alert("لم يتم العثور على سجلات لحذفها.");
                 return;
             }
-
-            const deleteTransaction = db.transaction([STORE_NAME], "readwrite");
-            const deleteStore = deleteTransaction.objectStore(STORE_NAME);
-
-            recordsToDelete.forEach(r => {
-                deleteStore.delete(r.id);
-            });
-
-            deleteTransaction.oncomplete = async () => {
-                alert("تم حذف بيانات الملف بنجاح.");
-                await loadDataAndRender();
-            };
-        };
+            throw new Error("Delete failed");
+        }
+        
+        alert("تم حذف بيانات الملف بنجاح.");
+        await loadDataAndRender();
     } catch (err) {
         console.error("Delete failed", err);
         alert("حدث خطأ أثناء حذف الملف.");
