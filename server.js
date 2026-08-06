@@ -26,11 +26,14 @@ const storage = multer.diskStorage({
         cb(null, uploadsDir)
     },
     filename: function (req, file, cb) {
-        // Keep original name but add timestamp to prevent overwriting
         cb(null, Date.now() + '-' + file.originalname)
     }
 });
-const upload = multer({ storage: storage });
+const upload = multer({ 
+    storage: storage,
+    limits: { fieldSize: 50 * 1024 * 1024 } // Increase field size limit to 50MB
+});
+
 
 // API: Get all data
 app.get('/api/data', (req, res) => {
