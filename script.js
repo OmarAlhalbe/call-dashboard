@@ -28,6 +28,96 @@ async function clearDatabase() {
     if (!response.ok) throw new Error("Clear failed");
 }
 
+// --- Robust Date & Time Utilities ---
+function parseCustomDate(val) {
+    if (!val) return null;
+    if (val instanceof Date) {
+        return isNaN(val.getTime()) ? null : val;
+    }
+    if (typeof val === 'number') {
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    let str = String(val).trim();
+    if (!str || str === "undefined" || str === "null") return null;
+
+    // Normalize Arabic numerals to standard 0-9
+    str = str.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+    // Normalize Arabic AM/PM
+    str = str.replace(/ص/g, 'AM').replace(/م/g, 'PM');
+
+    // Quick check for standard parsing
+    let d = new Date(str);
+    if (!isNaN(d.getTime())) return d;
+
+    // If space between date and time, try replacing with 'T'
+    if (/^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}(:\d{1,2})?$/.test(str)) {
+        d = new Date(str.replace(' ', 'T'));
+        if (!isNaN(d.getTime())) return d;
+    }
+
+    // Match YYYY-MM-DD or YYYY/MM/DD
+    let match = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
+    if (match) {
+        let year = parseInt(match[1], 10);
+        let month = parseInt(match[2], 10) - 1;
+        let day = parseInt(match[3], 10);
+        let hours = match[4] ? parseInt(match[4], 10) : 0;
+        let minutes = match[5] ? parseInt(match[5], 10) : 0;
+        let seconds = match[6] ? parseInt(match[6], 10) : 0;
+        let ampm = match[7] ? match[7].toUpperCase() : null;
+
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+
+        d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+    }
+
+    // Match DD/MM/YYYY or DD-MM-YYYY or MM/DD/YYYY
+    match = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
+    if (match) {
+        let part1 = parseInt(match[1], 10);
+        let part2 = parseInt(match[2], 10);
+        let year = parseInt(match[3], 10);
+        let hours = match[4] ? parseInt(match[4], 10) : 0;
+        let minutes = match[5] ? parseInt(match[5], 10) : 0;
+        let seconds = match[6] ? parseInt(match[6], 10) : 0;
+        let ampm = match[7] ? match[7].toUpperCase() : null;
+
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+
+        // If part1 > 12, it must be day
+        let day = part1;
+        let month = part2 - 1;
+        if (part1 <= 12 && part2 > 12) {
+            month = part1 - 1;
+            day = part2;
+        }
+
+        d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+    }
+
+    return null;
+}
+
+function formatDateToYYYYMMDD(val) {
+    const d = parseCustomDate(val);
+    if (!d) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getDateTimeMs(val) {
+    const d = parseCustomDate(val);
+    return d ? d.getTime() : 0;
+}
+
 // --- Main Application Logic ---
 
 let allData = [];
@@ -242,8 +332,17 @@ function parseCSVFile(file, branchName, sectorName) {
                 const validData = [];
 
                 data.forEach(row => {
-                    // Check logic based on previously required fields
-                    if (row['Date Time'] && row['From Number']) {
+                    const rawDateTime = row['Date Time'] || (row['Date'] && row['Time'] ? `${row['Date']} ${row['Time']}` : '');
+                    const rawFrom = row['From Number'] ? String(row['From Number']).trim() : '';
+                    const rawTo = row['To Number'] ? String(row['To Number']).trim() : '';
+
+                    if (rawDateTime && rawFrom) {
+                        row['Date Time'] = String(rawDateTime).trim();
+                        row['From Number'] = rawFrom;
+                        if (rawTo) row['To Number'] = rawTo;
+                        if (row['Name']) row['Name'] = String(row['Name']).trim();
+                        if (row['Type']) row['Type'] = String(row['Type']).trim();
+                        if (row['Duration']) row['Duration'] = String(row['Duration']).trim();
                         row['branch'] = branchName; // Attach branch
                         row['sector'] = sectorName; // Attach sector
                         validData.push(row);
@@ -340,15 +439,15 @@ async function loadDataAndRender() {
     const urlStart = params.get('start');
     const urlEnd = params.get('end');
 
-    // Sort logic by "Date Time"
+    // Sort logic by "Date Time" safely
     allData.sort((a, b) => {
-        return new Date(a['Date Time']) - new Date(b['Date Time']);
+        return getDateTimeMs(a['Date Time']) - getDateTimeMs(b['Date Time']);
     });
 
     if (allData.length > 0) {
         // Find last registered call 
         const lastCall = allData[allData.length - 1];
-        document.getElementById('lastCallDisplay').innerText = lastCall['Date Time'];
+        document.getElementById('lastCallDisplay').innerText = lastCall['Date Time'] || "--";
 
         // Auto-set Date Filters to bounds if empty
         const startInput = document.getElementById('dateFrom');
@@ -358,13 +457,18 @@ async function loadDataAndRender() {
         if (urlEnd) endInput.value = urlEnd;
 
         if (!startInput.value && !endInput.value) {
-            // "Date Time" format: 2/1/2026 12:35 PM usually. Need to parse manually or handle JS date parsing
-            const firstDateObj = new Date(allData[0]['Date Time']);
-            const lastDateObj = new Date(allData[allData.length - 1]['Date Time']);
-
-            // Format YYYY-MM-DD for input[type=date]
-            startInput.value = firstDateObj.toISOString().split('T')[0];
-            endInput.value = lastDateObj.toISOString().split('T')[0];
+            let firstValidDateStr = "";
+            let lastValidDateStr = "";
+            for (let i = 0; i < allData.length; i++) {
+                const s = formatDateToYYYYMMDD(allData[i]['Date Time']);
+                if (s) { firstValidDateStr = s; break; }
+            }
+            for (let i = allData.length - 1; i >= 0; i--) {
+                const s = formatDateToYYYYMMDD(allData[i]['Date Time']);
+                if (s) { lastValidDateStr = s; break; }
+            }
+            if (firstValidDateStr) startInput.value = firstValidDateStr;
+            if (lastValidDateStr) endInput.value = lastValidDateStr;
         }
 
         // Populate Sector Dropdown
@@ -437,12 +541,14 @@ function calculateMetrics(filteredData) {
         const isUnknown = (row['Name'] === 'Unknown' || row['Name'] === '');
         const type = row['Type'];
         const dur = row['Duration'];
-        const custNum = row['To Number'];
+        const custNum = (row['To Number'] || '').trim();
 
-        stats.uniqueNumbers.add(custNum);
-        if (isUnknown) {
+        if (custNum) stats.uniqueNumbers.add(custNum);
+        if (isUnknown && custNum) {
             stats.unreg_total++;
             stats.unregUniqueNumbers.add(custNum);
+        } else if (isUnknown) {
+            stats.unreg_total++;
         }
 
         if (type === 'Incoming' || type === 'Missed' || type === 'Rejected' || type === 'Canceled') {
@@ -480,8 +586,8 @@ function calculateMetrics(filteredData) {
     // 1. Create a map of latest outgoing call per number
     const latestOutgoingMap = new Map();
     outgoingAll.forEach(out => {
-        const num = out['To Number'];
-        const time = new Date(out['Date Time']).getTime();
+        const num = (out['To Number'] || '').trim();
+        const time = getDateTimeMs(out['Date Time']);
         if (!latestOutgoingMap.has(num) || time > latestOutgoingMap.get(num)) {
             latestOutgoingMap.set(num, time);
         }
@@ -489,8 +595,9 @@ function calculateMetrics(filteredData) {
 
     // 2. Check each missed call against the latest outgoing call for that number
     unregMissed.forEach(miss => {
-        const missTime = new Date(miss['Date Time']).getTime();
-        const latestFollowUpTime = latestOutgoingMap.get(miss['To Number']);
+        const missTime = getDateTimeMs(miss['Date Time']);
+        const num = (miss['To Number'] || '').trim();
+        const latestFollowUpTime = latestOutgoingMap.get(num);
         
         // If no follow-up exists, or the latest follow-up was BEFORE this missed call, it's unfollowed
         if (!latestFollowUpTime || latestFollowUpTime <= missTime) {
@@ -512,14 +619,21 @@ function renderDashboard(dataArray) {
         if (sectorVal && row['sector'] !== sectorVal) return false;
         if (branchVal && row['branch'] !== branchVal) return false;
         if (!startDateVal && !endDateVal) return true;
-        const rowDate = new Date(row['Date Time']);
+        const rowDate = parseCustomDate(row['Date Time']);
+        if (!rowDate) return true;
         if (startDateVal) {
-            const sd = new Date(startDateVal); sd.setHours(0,0,0,0);
-            if (rowDate < sd) return false;
+            const sd = parseCustomDate(startDateVal);
+            if (sd) {
+                sd.setHours(0,0,0,0);
+                if (rowDate < sd) return false;
+            }
         }
         if (endDateVal) {
-            const ed = new Date(endDateVal); ed.setHours(23,59,59,999);
-            if (rowDate > ed) return false;
+            const ed = parseCustomDate(endDateVal);
+            if (ed) {
+                ed.setHours(23,59,59,999);
+                if (rowDate > ed) return false;
+            }
         }
         return true;
     });
@@ -570,9 +684,9 @@ function renderDashboard(dataArray) {
     let dailyMap = {};
 
     unfollowedCalls.forEach(call => {
-        const dt = new Date(call['Date Time']);
+        const dt = parseCustomDate(call['Date Time']) || new Date();
         const h = dt.getHours();
-        const dateStr = dt.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = formatDateToYYYYMMDD(dt) || "غير محدد";
 
         let shiftName = "";
         let shiftKey = "";
@@ -663,9 +777,9 @@ function renderDashboard(dataArray) {
         let rDailyMap = {};
 
         rejectedCalls.forEach(call => {
-            const dt = new Date(call['Date Time']);
+            const dt = parseCustomDate(call['Date Time']) || new Date();
             const h = dt.getHours();
-            const dateStr = dt.toISOString().split('T')[0];
+            const dateStr = formatDateToYYYYMMDD(dt) || "غير محدد";
 
             let shiftKey = "";
 
@@ -747,14 +861,21 @@ function renderDashboard(dataArray) {
         const dateFilteredOnly = dataArray.filter(row => {
             if (sectorVal && row['sector'] !== sectorVal) return false;
             if (!startDateVal && !endDateVal) return true;
-            const rowDate = new Date(row['Date Time']);
+            const rowDate = parseCustomDate(row['Date Time']);
+            if (!rowDate) return true;
             if (startDateVal) {
-                const sd = new Date(startDateVal); sd.setHours(0, 0, 0, 0);
-                if (rowDate < sd) return false;
+                const sd = parseCustomDate(startDateVal);
+                if (sd) {
+                    sd.setHours(0, 0, 0, 0);
+                    if (rowDate < sd) return false;
+                }
             }
             if (endDateVal) {
-                const ed = new Date(endDateVal); ed.setHours(23, 59, 59, 999);
-                if (rowDate > ed) return false;
+                const ed = parseCustomDate(endDateVal);
+                if (ed) {
+                    ed.setHours(23, 59, 59, 999);
+                    if (rowDate > ed) return false;
+                }
             }
             return true;
         });
@@ -793,9 +914,9 @@ function renderDashboard(dataArray) {
         const branchOutgoingMap = new Map();
         outgoingAll.forEach(out => {
             const b = out['branch'] || "غير محدد";
-            const num = out['To Number'];
+            const num = (out['To Number'] || '').trim();
             const key = `${b}_${num}`;
-            const time = new Date(out['Date Time']).getTime();
+            const time = getDateTimeMs(out['Date Time']);
             if (!branchOutgoingMap.has(key) || time > branchOutgoingMap.get(key)) {
                 branchOutgoingMap.set(key, time);
             }
@@ -803,9 +924,9 @@ function renderDashboard(dataArray) {
 
         missedUnreg.forEach(missRecord => {
             const b = missRecord['branch'] || "غير محدد";
-            const num = missRecord['To Number'];
+            const num = (missRecord['To Number'] || '').trim();
             const key = `${b}_${num}`;
-            const missTime = new Date(missRecord['Date Time']).getTime();
+            const missTime = getDateTimeMs(missRecord['Date Time']);
             const latestFollowUpTime = branchOutgoingMap.get(key);
 
             // If no follow-up in this branch, or it was before the missed call
@@ -1065,7 +1186,7 @@ async function deleteByUpload(filename, uploadTime) {
 // --- Logic for unfollowed.html ---
 async function loadUnfollowedPageAndRender() {
     allData = await getAllRecords();
-    allData.sort((a, b) => new Date(a['Date Time']) - new Date(b['Date Time']));
+    allData.sort((a, b) => getDateTimeMs(a['Date Time']) - getDateTimeMs(b['Date Time']));
 
     // Parse URL params
     const params = new URLSearchParams(window.location.search);
@@ -1099,14 +1220,21 @@ async function loadUnfollowedPageAndRender() {
         if (sectorVal && row['sector'] !== sectorVal) return false;
         if (branchVal && row['branch'] !== branchVal) return false;
         if (!startDateVal && !endDateVal) return true;
-        const rowDate = new Date(row['Date Time']);
+        const rowDate = parseCustomDate(row['Date Time']);
+        if (!rowDate) return true;
         if (startDateVal) {
-            const sd = new Date(startDateVal); sd.setHours(0, 0, 0, 0);
-            if (rowDate < sd) return false;
+            const sd = parseCustomDate(startDateVal);
+            if (sd) {
+                sd.setHours(0, 0, 0, 0);
+                if (rowDate < sd) return false;
+            }
         }
         if (endDateVal) {
-            const ed = new Date(endDateVal); ed.setHours(23, 59, 59, 999);
-            if (rowDate > ed) return false;
+            const ed = parseCustomDate(endDateVal);
+            if (ed) {
+                ed.setHours(23, 59, 59, 999);
+                if (rowDate > ed) return false;
+            }
         }
         return true;
     });
@@ -1123,16 +1251,16 @@ async function loadUnfollowedPageAndRender() {
     // OPTIMIZED Fast look-up using Map - O(N + M)
     const latestOutgoingMap = new Map();
     unregOutgoingRecords.forEach(out => {
-        const num = out['To Number'];
-        const time = new Date(out['Date Time']).getTime();
+        const num = (out['To Number'] || '').trim();
+        const time = getDateTimeMs(out['Date Time']);
         if (!latestOutgoingMap.has(num) || time > latestOutgoingMap.get(num)) {
             latestOutgoingMap.set(num, time);
         }
     });
 
     unregMissedRecords.forEach(missRecord => {
-        const missTime = new Date(missRecord['Date Time']).getTime();
-        const num = missRecord['To Number'];
+        const missTime = getDateTimeMs(missRecord['Date Time']);
+        const num = (missRecord['To Number'] || '').trim();
         const latestFollowUpTime = latestOutgoingMap.get(num);
 
         // If no follow-up, or follow-up was before the missed call
@@ -1197,7 +1325,7 @@ function exportToExcel(calls) {
     
     // Generate filename with current date
     const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(now) || "export";
     const timeStr = now.getHours() + "-" + now.getMinutes();
     
     // Save file
@@ -1249,7 +1377,7 @@ function renderUnfollowedContent(calls, mode) {
 // --- REJECTED PAGE LOGIC ---
 async function loadRejectedPageAndRender() {
     allData = await getAllRecords();
-    allData.sort((a, b) => new Date(a['Date Time']) - new Date(b['Date Time']));
+    allData.sort((a, b) => getDateTimeMs(a['Date Time']) - getDateTimeMs(b['Date Time']));
 
     // Parse URL params
     const params = new URLSearchParams(window.location.search);
@@ -1282,14 +1410,21 @@ async function loadRejectedPageAndRender() {
         if (sectorVal && row['sector'] !== sectorVal) return false;
         if (branchVal && row['branch'] !== branchVal) return false;
         if (!startDateVal && !endDateVal) return true;
-        const rowDate = new Date(row['Date Time']);
+        const rowDate = parseCustomDate(row['Date Time']);
+        if (!rowDate) return true;
         if (startDateVal) {
-            const sd = new Date(startDateVal); sd.setHours(0, 0, 0, 0);
-            if (rowDate < sd) return false;
+            const sd = parseCustomDate(startDateVal);
+            if (sd) {
+                sd.setHours(0, 0, 0, 0);
+                if (rowDate < sd) return false;
+            }
         }
         if (endDateVal) {
-            const ed = new Date(endDateVal); ed.setHours(23, 59, 59, 999);
-            if (rowDate > ed) return false;
+            const ed = parseCustomDate(endDateVal);
+            if (ed) {
+                ed.setHours(23, 59, 59, 999);
+                if (rowDate > ed) return false;
+            }
         }
         return true;
     });
@@ -1394,7 +1529,7 @@ function exportToExcelRejected(calls) {
     
     // Generate filename with current date
     const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const dateStr = formatDateToYYYYMMDD(now) || "export";
     const timeStr = now.getHours() + "-" + now.getMinutes();
     
     // Save file
@@ -1478,7 +1613,8 @@ function appendGroupedRow(tbody, call, rowIndex, count, allGroupCalls) {
 }
 
 function getShiftName(dateTimeStr) {
-    const dt = new Date(dateTimeStr);
+    const dt = parseCustomDate(dateTimeStr);
+    if (!dt) return "غير محدد";
     const h = dt.getHours();
     if (h >= 8 && h < 16) return "الشفت الأول 8ص - 4م";
     if (h >= 16) return "الشفت الثاني 4م - 12ص";
@@ -1499,14 +1635,16 @@ document.getElementById('runComparisonBtn')?.addEventListener('click', () => {
 
     const dataM1 = allData.filter(row => {
         if (sectorVal && row['sector'] !== sectorVal) return false;
-        const d = new Date(row['Date Time']);
+        const d = parseCustomDate(row['Date Time']);
+        if (!d) return false;
         const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         return monthStr === m1;
     });
 
     const dataM2 = allData.filter(row => {
         if (sectorVal && row['sector'] !== sectorVal) return false;
-        const d = new Date(row['Date Time']);
+        const d = parseCustomDate(row['Date Time']);
+        if (!d) return false;
         const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         return monthStr === m2;
     });
