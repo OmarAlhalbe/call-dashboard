@@ -29,7 +29,8 @@ async function clearDatabase() {
 }
 
 // --- Robust Date & Time Utilities ---
-function parseCustomDate(val) {
+
+function parseDateWithFormat(val, format = 'AUTO') {
     if (!val) return null;
     if (val instanceof Date) {
         return isNaN(val.getTime()) ? null : val;
@@ -47,39 +48,29 @@ function parseCustomDate(val) {
     // Normalize Arabic AM/PM
     str = str.replace(/ص/g, 'AM').replace(/م/g, 'PM');
 
-    // Quick check for standard parsing
-    let d = new Date(str);
-    if (!isNaN(d.getTime())) return d;
-
-    // If space between date and time, try replacing with 'T'
-    if (/^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}(:\d{1,2})?$/.test(str)) {
-        d = new Date(str.replace(' ', 'T'));
-        if (!isNaN(d.getTime())) return d;
-    }
-
-    // Match YYYY-MM-DD or YYYY/MM/DD
-    let match = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
-    if (match) {
-        let year = parseInt(match[1], 10);
-        let month = parseInt(match[2], 10) - 1;
-        let day = parseInt(match[3], 10);
-        let hours = match[4] ? parseInt(match[4], 10) : 0;
-        let minutes = match[5] ? parseInt(match[5], 10) : 0;
-        let seconds = match[6] ? parseInt(match[6], 10) : 0;
-        let ampm = match[7] ? match[7].toUpperCase() : null;
+    // 1. Match ISO format: YYYY-MM-DD or YYYY/MM/DD
+    let isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
+    if (isoMatch) {
+        let year = parseInt(isoMatch[1], 10);
+        let month = parseInt(isoMatch[2], 10) - 1;
+        let day = parseInt(isoMatch[3], 10);
+        let hours = isoMatch[4] ? parseInt(isoMatch[4], 10) : 0;
+        let minutes = isoMatch[5] ? parseInt(isoMatch[5], 10) : 0;
+        let seconds = isoMatch[6] ? parseInt(isoMatch[6], 10) : 0;
+        let ampm = isoMatch[7] ? isoMatch[7].toUpperCase() : null;
 
         if (ampm === 'PM' && hours < 12) hours += 12;
         if (ampm === 'AM' && hours === 12) hours = 0;
 
-        d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        return isNaN(d.getTime()) ? null : d;
     }
 
-    // Match DD/MM/YYYY or DD-MM-YYYY or MM/DD/YYYY
-    match = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
+    // 2. Match DD/MM/YYYY or MM/DD/YYYY
+    let match = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\s*(AM|PM|am|pm))?)?/i);
     if (match) {
-        let part1 = parseInt(match[1], 10);
-        let part2 = parseInt(match[2], 10);
+        let p1 = parseInt(match[1], 10);
+        let p2 = parseInt(match[2], 10);
         let year = parseInt(match[3], 10);
         let hours = match[4] ? parseInt(match[4], 10) : 0;
         let minutes = match[5] ? parseInt(match[5], 10) : 0;
@@ -89,19 +80,127 @@ function parseCustomDate(val) {
         if (ampm === 'PM' && hours < 12) hours += 12;
         if (ampm === 'AM' && hours === 12) hours = 0;
 
-        // If part1 > 12, it must be day
-        let day = part1;
-        let month = part2 - 1;
-        if (part1 <= 12 && part2 > 12) {
-            month = part1 - 1;
-            day = part2;
+        let day, month;
+        if (format === 'MM/DD/YYYY') {
+            month = p1 - 1;
+            day = p2;
+        } else if (format === 'DD/MM/YYYY') {
+            day = p1;
+            month = p2 - 1;
+        } else {
+            // AUTO heuristic for single string
+            if (p1 > 12 && p2 <= 12) {
+                day = p1;
+                month = p2 - 1;
+            } else if (p2 > 12 && p1 <= 12) {
+                month = p1 - 1;
+                day = p2;
+            } else {
+                // Default to regional standard DD/MM/YYYY
+                day = p1;
+                month = p2 - 1;
+            }
         }
 
-        d = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(d.getTime())) return d;
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        return isNaN(d.getTime()) ? null : d;
     }
 
     return null;
+}
+
+function parseCustomDate(val) {
+    return parseDateWithFormat(val, 'AUTO');
+}
+
+// Detect date format across all rows in a file and normalize to standard ISO (YYYY-MM-DD HH:mm:ss)
+function normalizeDatesForFile(rows, fileName = "") {
+    let fileMonthHint = null;
+    const fileMonthMatch = fileName.match(/(\d{4})[-_](\d{1,2})/);
+    if (fileMonthMatch) {
+        fileMonthHint = parseInt(fileMonthMatch[2], 10);
+    }
+
+    let countPart1Over12 = 0; // p1 > 12 -> DD/MM/YYYY
+    let countPart2Over12 = 0; // p2 > 12 -> MM/DD/YYYY
+    let countIso = 0;
+
+    let part1Values = new Set();
+    let part2Values = new Set();
+    let part1MatchesMonthHint = 0;
+    let part2MatchesMonthHint = 0;
+
+    for (const row of rows) {
+        let raw = row['Date Time'] || (row['Date'] && row['Time'] ? `${row['Date']} ${row['Time']}` : row['Date'] || '');
+        if (!raw) continue;
+
+        let str = String(raw).trim();
+        str = str.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+        str = str.replace(/ص/g, 'AM').replace(/م/g, 'PM');
+
+        // Check ISO
+        if (/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.test(str)) {
+            countIso++;
+            continue;
+        }
+
+        const endYearMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+        if (endYearMatch) {
+            const p1 = parseInt(endYearMatch[1], 10);
+            const p2 = parseInt(endYearMatch[2], 10);
+
+            part1Values.add(p1);
+            part2Values.add(p2);
+
+            if (p1 > 12 && p2 <= 12) countPart1Over12++;
+            if (p2 > 12 && p1 <= 12) countPart2Over12++;
+
+            if (fileMonthHint !== null) {
+                if (p1 === fileMonthHint) part1MatchesMonthHint++;
+                if (p2 === fileMonthHint) part2MatchesMonthHint++;
+            }
+        }
+    }
+
+    let detectedFormat = 'DD/MM/YYYY'; // Default regional standard
+
+    if (countIso > 0 && countPart1Over12 === 0 && countPart2Over12 === 0) {
+        detectedFormat = 'ISO';
+    } else if (countPart1Over12 > 0 && countPart2Over12 === 0) {
+        detectedFormat = 'DD/MM/YYYY';
+    } else if (countPart2Over12 > 0 && countPart1Over12 === 0) {
+        detectedFormat = 'MM/DD/YYYY';
+    } else if (fileMonthHint !== null) {
+        if (part2MatchesMonthHint > part1MatchesMonthHint) {
+            detectedFormat = 'DD/MM/YYYY';
+        } else if (part1MatchesMonthHint > part2MatchesMonthHint) {
+            detectedFormat = 'MM/DD/YYYY';
+        }
+    } else if (part1Values.size > 0 && part2Values.size > 0) {
+        if (part2Values.size === 1 && part1Values.size > 1) {
+            detectedFormat = 'DD/MM/YYYY';
+        } else if (part1Values.size === 1 && part2Values.size > 1) {
+            detectedFormat = 'MM/DD/YYYY';
+        }
+    }
+
+    rows.forEach(row => {
+        let raw = row['Date Time'] || (row['Date'] && row['Time'] ? `${row['Date']} ${row['Time']}` : row['Date'] || '');
+        if (!raw) return;
+
+        let parsed = parseDateWithFormat(raw, detectedFormat);
+        if (parsed) {
+            const y = parsed.getFullYear();
+            const m = String(parsed.getMonth() + 1).padStart(2, '0');
+            const d = String(parsed.getDate()).padStart(2, '0');
+            const hh = String(parsed.getHours()).padStart(2, '0');
+            const mm = String(parsed.getMinutes()).padStart(2, '0');
+            const ss = String(parsed.getSeconds()).padStart(2, '0');
+            row['Date Time'] = `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+        }
+    });
+
+    return rows;
 }
 
 function formatDateToYYYYMMDD(val) {
@@ -348,6 +447,9 @@ function parseCSVFile(file, branchName, sectorName) {
                         validData.push(row);
                     }
                 });
+
+                // Normalize dates intelligently across the entire file
+                normalizeDatesForFile(validData, file.name);
 
                 resolve(validData);
             },
